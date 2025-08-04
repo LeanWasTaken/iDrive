@@ -1,0 +1,59 @@
+[RAW] ID:0x25B Data: 03 FF 7F 00 20 00 C0 C0
+[RAW] ID:0x25B Data: 04 FF 7F 00 80 00 C0 C0
+[RAW] ID:0x25B Data: 05 FF 7F 00 00 00 C0 C0
+BACK button - 0x20 is being pressed, 0x80 is being touched, 0x0 is released
+
+[RAW] ID:0x25B Data: 03 FF 7F 00 00 08 C0 C0
+[RAW] ID:0x25B Data: 04 FF 7F 00 00 20 C0 C0
+[RAW] ID:0x25B Data: 05 FF 7F 00 00 00 C0 C0
+COM Button - Byte5 - 08 pressed, 20 touched, C0 released
+
+[RAW] ID:0x25B Data: 07 FF 7F 00 00 00 C1 C0
+[RAW] ID:0x25B Data: 08 FF 7F 00 00 00 C4 C0
+[RAW] ID:0x25B Data: 09 FF 7F 00 00 00 C0 C0
+MEDIA Button - Byte6 - C1 pressed, C4 touched, C0 released
+
+[RAW] ID:0x25B Data: 33 FF 7F 00 04 00 C0 C0
+[RAW] ID:0x25B Data: 34 FF 7F 00 10 00 C0 C0
+[RAW] ID:0x25B Data: 35 FF 7F 00 00 00 C0 C0
+HOME button - Byte4 - 04 pressed, 10 touched, 00 released.
+
+[RAW] ID:0x25B Data: 03 FF 7F 00 00 00 C0 C1
+[RAW] ID:0x25B Data: 04 FF 7F 00 00 00 C0 C4
+[RAW] ID:0x25B Data: 05 FF 7F 00 00 00 C0 C0
+MAP button - Byte7 - C1 pressed, C4 touched, C0 released.
+
+[RAW] ID:0x25B Data: 03 FF 7F 00 00 00 C8 C0
+[RAW] ID:0x25B Data: 04 FF 7F 00 00 00 E0 C0
+[RAW] ID:0x25B Data: 05 FF 7F 00 00 00 C0 C0
+NAV button - Byte6 - C8 pressed, E0 touched, C0 released.
+
+[RAW] ID:0x25B Data: 03 FF 7F 00 00 00 C0 C8
+[RAW] ID:0x25B Data: 04 FF 7F 00 00 00 C0 E0
+[RAW] ID:0x25B Data: 05 FF 7F 00 00 00 C0 C0
+GLOBE Button - Byte7 - C8 pressed, E8 touched, C0 released
+
+[RAW] ID:0x25B Data: 03 FF 7F 00 00 01 C0 C0
+[RAW] ID:0x25B Data: 04 FF 7F 00 00 04 C0 C0
+[RAW] ID:0x25B Data: 05 FF 7F 00 00 00 C0 C0
+OPTION Button - Byte5 - 01 pressed, 04 touched, 00 released.
+
+[RAW] ID:0x25B Data: 04 FF 7F 01 00 00 C0 C0
+[RAW] ID:0x25B Data: 05 FF 7F 00 00 00 C0 C0
+Knob pressed center - Byte3 - 01 pressed, 00 released.
+
+[RAW] ID:0x25B Data: 02 FF 7F A0 00 00 C0 C0
+[RAW] ID:0x25B Data: 03 FF 7F 00 00 00 C0 C0
+Knob pressed left - Byte3 - A0 pressed left, 00 released
+
+[RAW] ID:0x25B Data: 02 FF 7F 10 00 00 C0 C0
+[RAW] ID:0x25B Data: 03 FF 7F 00 00 00 C0 C0
+Knob pressed up - Byte3 - 10 pressed up, 00 released
+
+[RAW] ID:0x25B Data: 02 FF 7F 40 00 00 C0 C0
+[RAW] ID:0x25B Data: 03 FF 7F 00 00 00 C0 C0
+Knob pressed right - Byte3 - 40 pressed right, 00 released
+
+[RAW] ID:0x25B Data: 02 FF 7F 70 00 00 C0 C0
+[RAW] ID:0x25B Data: 03 FF 7F 00 00 00 C0 C0
+Knob pressed down - Byte3 - 70 pressed down, 00 released
