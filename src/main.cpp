@@ -1,42 +1,34 @@
 /*
- * iDrive * CAN ID 0x25B: Combined rotation, knob press, and button messages
- *   - data[0]: sequence counter (increments with each event)
- *   - data[1]: encoder position value (changes for rotation)
- *   - data[3]: knob press state (0x00 = released, 0x01 = center, 0x10 = up, 0x40 = right, 0x70 = down, 0xA0 = left)
- *   - data[4]: BACK button state (0x00 = released, 0x20 = pressed, 0x80 = touched)
- *   - data[5]: COM/OPTION button state (COM: 0x08=pressed, 0x20=touched; OPTION: 0x01=pressed, 0x04=touched; 0x00=released)
- *   - data[6]: MEDIA/NAV button state (MEDIA: 0xC1=pressed, 0xC4=touched; NAV: 0xC8=pressed, 0xE0=touched; 0xC0=released)
- *   - data[7]: MAP/GLOBE button state (MAP: 0xC1=pressed, 0xC4=touched; GLOBE: 0xC8=pressed, 0xE0=touched; 0xC0=released)
- *   - Used for: Rotation detection/direction AND knob press AND BACK/COM/OPTION/HOME/MEDIA/NAV/MAP/GLOBE button press/touch/releaseler CAN Bus Interpreter - Reworked Version
+ * iDrive Controller CAN Bus Interpreter - Corrected Version
  * ========================================================
  *
  * This program interprets CAN messages from a BMW iDrive controller knob.
  * Based on confirmed analysis of captured CAN data:
  *
  * CONFIRMED WORKING:
- * CAN ID 0x567: Knob status messages
- *   - Pattern: 0x40 0x67 0x00 0x00 0x00 0xXX 0x00 0x00
- *   - data[5]: 0x02 = normal/touch, 0x00 = knob pressed down
- *   - Used for: Press detection and touch detection (when no rotation)
- *
- * CAN ID 0x25B: Combined rotation and button messages
+ * CAN ID 0x25B: ALL controller functionality (rotation + knob press + buttons)
  *   - data[0]: sequence counter (increments with each event)
  *   - data[1]: encoder position value (changes for rotation)
- *   - data[4]: BACK button state (0x00 = released, 0x20 = pressed, 0x80 = touched)
+ *   - data[3]: knob press state (0x00=released, 0x01=center, 0x10=up, 0x40=right, 0x70=down, 0xA0=left)
+ *   - data[4]: BACK/HOME button state (BACK: 0x20=pressed, 0x80=touched; HOME: 0x04=pressed, 0x10=touched; 0x00=released)
  *   - data[5]: COM/OPTION button state (COM: 0x08=pressed, 0x20=touched; OPTION: 0x01=pressed, 0x04=touched; 0x00=released)
  *   - data[6]: MEDIA/NAV button state (MEDIA: 0xC1=pressed, 0xC4=touched; NAV: 0xC8=pressed, 0xE0=touched; 0xC0=released)
  *   - data[7]: MAP/GLOBE button state (MAP: 0xC1=pressed, 0xC4=touched; GLOBE: 0xC8=pressed, 0xE0=touched; 0xC0=released)
- *   - Used for: Rotation detection/direction AND BACK/COM/OPTION/HOME/MEDIA/NAV/MAP/GLOBE button press/touch/release
+ *   - Contains: Rotation detection, knob 5-direction joystick, ALL 8 buttons
  *
- * UNDER INVESTIGATION (raw messages printed):
- * CAN ID 0x5E7: Button press messages
+ * UNKNOWN PURPOSE (but legitimate signals):
+ * CAN ID 0x567: Unknown function - triggered by crown contact
+ *   - Pattern: 0x40 0x67 0x00 0x00 0x00 0x02 0x00 0x00
+ *   - Consistent behavior suggests legitimate function (status/proximity/etc?)
+ * CAN ID 0x5E7: Unknown function - also crown contact related
+ *   - Pattern: 0x05 0x67 0x04 0x02 0x00 0x00 0xFF 0xFF
+ *   - Could be proximity detection, capacitive sensing, or status reporting
  * CAN ID 0x0BF: Continuous data stream
  *
  * Hardware: ESP32-S3 with MCP2515 CAN controller
  * CS pin: 10, INT pin: 14, Speed: 500kbps
- */
-
-#include <Arduino.h>
+ */ \
+#include<Arduino.h>
 #include <SPI.h>
 #include <mcp_can.h>
 
@@ -47,17 +39,16 @@
 MCP_CAN CAN(CAN_CS);
 
 // iDrive controller CAN IDs
-#define IDRIVE_KNOB_STATUS_ID 0x567 // Knob press/touch status (CONFIRMED)
-#define IDRIVE_ROTATION_ID 0x25B    // Rotation messages AND BACK button (CONFIRMED)
-#define IDRIVE_BUTTONS_ID 0x5E7     // Other button presses (INVESTIGATING)
+#define IDRIVE_UNKNOWN_567 0x567    // Unknown purpose - possibly status/wake-up related
+#define IDRIVE_CONTROLLER_ID 0x25B  // ALL controller functionality (rotation + knob + buttons)
+#define IDRIVE_UNKNOWN_5E7 0x5E7    // Unknown purpose
 #define IDRIVE_DATA_STREAM_ID 0x0BF // Data stream (INVESTIGATING)
 
 // Controller state - only confirmed functionality
 struct iDriveState
 {
-  // CONFIRMED working states
-  bool knobPressed = false;         // Physical knob press (0x567 data[5] = 0x00)
-  bool knobTouched = false;         // Surface touch without rotation
+  // CONFIRMED working states (ALL from 0x25B)
+  bool knobPressedCenter = false;   // Knob pressed center (0x25B data[3] = 0x01)
   bool knobPressedLeft = false;     // Knob pressed left (0x25B data[3] = 0xA0)
   bool knobPressedUp = false;       // Knob pressed up (0x25B data[3] = 0x10)
   bool knobPressedRight = false;    // Knob pressed right (0x25B data[3] = 0x40)
@@ -68,8 +59,8 @@ struct iDriveState
   bool comButtonTouched = false;    // COM button touched (0x25B data[5] = 0x20)
   bool optionButtonPressed = false; // OPTION button pressed (0x25B data[5] = 0x01)
   bool optionButtonTouched = false; // OPTION button touched (0x25B data[5] = 0x04)
-  bool homeButtonPressed = false;   // HOME button pressed (0x25B data[5] = 0x04)
-  bool homeButtonTouched = false;   // HOME button touched (0x25B data[5] = 0x10)
+  bool homeButtonPressed = false;   // HOME button pressed (0x25B data[4] = 0x04)
+  bool homeButtonTouched = false;   // HOME button touched (0x25B data[4] = 0x10)
   bool mediaButtonPressed = false;  // MEDIA button pressed (0x25B data[6] = 0xC1)
   bool mediaButtonTouched = false;  // MEDIA button touched (0x25B data[6] = 0xC4)
   bool navButtonPressed = false;    // NAV button pressed (0x25B data[6] = 0xC8)
@@ -90,6 +81,10 @@ struct iDriveState
   // Touch detection timing
   unsigned long last567Time = 0;
   unsigned long last25BTime = 0;
+
+  // Keep-alive timing
+  unsigned long lastKeepAliveTime = 0;
+  bool wakeUpSequenceSent = false;
 };
 
 unsigned long int currentMillis;
@@ -99,19 +94,20 @@ iDriveState current;
 iDriveState previous;
 
 // Debug configuration
-bool rawDebugMode = false;   // Show all unknown/investigating messages
+bool rawDebugMode = true;    // Show all unknown/investigating messages - ENABLED to see wake-up responses
 bool statusDebugMode = true; // Show confirmed status changes
+bool filterUnknown = true;   // Filter out unknown crown contact messages (reduces noise)
 
 // Function declarations
 void handleSerialCommands();
 void processCanMessages();
-void handleKnobStatus(unsigned char *data, unsigned long timestamp);
-void handleRotation(unsigned char *data, unsigned long timestamp);
-void handleButtonsInvestigation(unsigned char *data);
-void handleDataStreamInvestigation(unsigned char *data);
-void updateTouchDetection();
-void reportStateChanges();
+void handleUnknown567(unsigned char *data, unsigned long timestamp);
+void handleController(unsigned char *data, unsigned long timestamp);
+void handleUnknown5E7(unsigned char *data);
 void printRawMessage(const char *type, unsigned long id, unsigned char len, unsigned char *data);
+void sendKnobWakeUp();
+void sendKeepAlive();
+void iDriveLight();
 
 void setup()
 {
@@ -138,13 +134,22 @@ void setup()
   CAN.setMode(MCP_NORMAL);
   attachInterrupt(digitalPinToInterrupt(CAN_INT), []() {}, FALLING);
 
+  Serial.println("iDrive CAN interpreter ready - passive listening mode");
+  Serial.println("Controller will wake up naturally when you interact with it");
+
+  // Initialize timing but don't send wake-up
+  current.lastKeepAliveTime = millis();
+
   Serial.println("Commands:");
   Serial.println("  'r' - Toggle raw debug (investigating messages)");
   Serial.println("  's' - Toggle status debug (confirmed functionality)");
+  Serial.println("  'f' - Toggle unknown message filter");
+  Serial.println("  'w' - Send wake-up sequence (manual test)");
+  Serial.println("  'k' - Send keep-alive (manual test)");
   Serial.println();
 }
 
-void do_iDriveLight()
+void iDriveLight()
 {
   // ID: 202, Data: 2 FD 0 == Light ON, D: 202, Data: 2 FE 0 == Light OFF
   unsigned char buf[2] = {0x00, 0x0};
@@ -160,10 +165,57 @@ void do_iDriveLight()
   CAN.sendMsgBuf(0x202, 0, msglength, buf);
 }
 
+void sendKnobWakeUp()
+{
+  // Test sending wake-up to 0x567 since it might be the correct target ID
+  Serial.println("Testing wake-up to 0x567 (potential target ID)...");
+
+  // Try sending to 0x567 - various wake-up patterns
+  unsigned char wakePattern1[8] = {0x40, 0x67, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00}; // Mirror observed pattern
+  unsigned char wakePattern2[8] = {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // Basic wake
+  unsigned char wakePattern3[8] = {0x02, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // Alternative pattern
+
+  CAN.sendMsgBuf(0x567, 0, 8, wakePattern1); // Try sending TO 0x567
+  delay(50);
+  CAN.sendMsgBuf(0x567, 0, 8, wakePattern2);
+  delay(50);
+  CAN.sendMsgBuf(0x567, 0, 8, wakePattern3);
+  delay(50);
+
+  // Also try traditional BMW wake-up IDs (in case 0x567 is not the target)
+  unsigned char mguWake[8] = {0x40, 0x65, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00};
+  CAN.sendMsgBuf(0x273, 0, 8, mguWake); // MGU to iDrive
+  delay(50);
+
+  Serial.println("Wake-up patterns sent to 0x567 and traditional BMW IDs");
+}
+
+void sendKeepAlive()
+{
+  // Test keep-alive to 0x567 since it might be the communication channel
+  unsigned char keepAlive567[8] = {0x40, 0x67, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00}; // Mirror observed pattern
+  CAN.sendMsgBuf(0x567, 0, 8, keepAlive567);                                        // Send TO 0x567
+
+  // Also send traditional BMW keep-alive patterns
+  unsigned char mguAlive[8] = {0x40, 0x65, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00}; // MGU status alive
+  unsigned char bdcAlive[8] = {0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // BDC alive
+
+  CAN.sendMsgBuf(0x273, 0, 8, mguAlive); // MGU status to iDrive
+  CAN.sendMsgBuf(0x545, 0, 8, bdcAlive); // BDC to iDrive
+
+  if (statusDebugMode)
+  {
+    Serial.println("Sent keep-alive to 0x567 and traditional BMW IDs");
+  }
+}
+
 void loop()
 {
   handleSerialCommands();
   processCanMessages();
+
+  // NO automatic keep-alive - let controller manage its own sleep/wake cycle
+  // Only send keep-alive manually via 'k' command for testing
 }
 
 void handleSerialCommands()
@@ -185,6 +237,25 @@ void handleSerialCommands()
       statusDebugMode = !statusDebugMode;
       Serial.print("Status debug mode: ");
       Serial.println(statusDebugMode ? "ON" : "OFF");
+      break;
+
+    case 'f':
+    case 'F':
+      filterUnknown = !filterUnknown;
+      Serial.print("Unknown message filter: ");
+      Serial.println(filterUnknown ? "ON (hiding crown contact messages)" : "OFF (showing all messages)");
+      break;
+
+    case 'w':
+    case 'W':
+      Serial.println("Sending wake-up sequence...");
+      sendKnobWakeUp();
+      break;
+
+    case 'k':
+    case 'K':
+      Serial.println("Sending manual keep-alive...");
+      sendKeepAlive();
       break;
     }
   }
@@ -211,16 +282,16 @@ void processCanMessages()
 
       switch (rxId)
       {
-      case IDRIVE_KNOB_STATUS_ID:
-        handleKnobStatus(rxBuf, currentTime);
+      case IDRIVE_UNKNOWN_567:
+        handleUnknown567(rxBuf, currentTime);
         break;
 
-      case IDRIVE_ROTATION_ID:
-        handleRotation(rxBuf, currentTime);
+      case IDRIVE_CONTROLLER_ID:
+        handleController(rxBuf, currentTime);
         break;
 
-      case IDRIVE_BUTTONS_ID:
-        handleButtonsInvestigation(rxBuf);
+      case IDRIVE_UNKNOWN_5E7:
+        handleUnknown5E7(rxBuf);
         break;
 
         /*case IDRIVE_DATA_STREAM_ID:
@@ -238,34 +309,25 @@ void processCanMessages()
   }
 }
 
-void handleKnobStatus(unsigned char *data, unsigned long timestamp)
+void handleUnknown567(unsigned char *data, unsigned long timestamp)
 {
-  return;
-  printRawMessage("KNOB", IDRIVE_KNOB_STATUS_ID, 8, data);
-  if (data[0] == 0x40 && data[1] == 0x67)
+  // 0x567: Unknown purpose - triggered by crown contact
+  // Pattern observed: 0x40 0x67 0x00 0x00 0x00 0x02 0x00 0x00
+  // Consistent behavior suggests legitimate function:
+  // - Could be proximity detection, capacitive sensing, user presence, etc.
+  // - Might be used for power management or UI feedback
+
+  if (rawDebugMode && !filterUnknown)
   {
-    current.last567Time = timestamp;
-
-    // data[5] reliably indicates knob press state
-    bool newPressed = (data[5] == 0x00);
-
-    if (current.knobPressed != newPressed)
-    {
-      current.knobPressed = newPressed;
-
-      if (statusDebugMode)
-      {
-        Serial.print("0x567: Knob ");
-        Serial.print(newPressed ? "PRESSED" : "RELEASED");
-        Serial.print(" (data[5]=0x");
-        Serial.print(data[5], HEX);
-        Serial.println(")");
-      }
-    }
+    printRawMessage("UNKNOWN_567", IDRIVE_UNKNOWN_567, 8, data);
+    Serial.println("📡 Crown contact detected on 0x567 - purpose unknown");
   }
+
+  // Track timing for potential correlation analysis
+  current.last567Time = timestamp;
 }
 
-void handleRotation(unsigned char *data, unsigned long timestamp)
+void handleController(unsigned char *data, unsigned long timestamp)
 {
   // 0x25B: Handles rotation, knob press, and all button messages
   uint8_t newSequence = data[0];
@@ -277,15 +339,15 @@ void handleRotation(unsigned char *data, unsigned long timestamp)
   uint8_t mapButtonState = data[7];
 
   // Handle knob press (data[3])
-  bool newKnobPressed = (knobPressState == 0x01);
+  bool newKnobPressedCenter = (knobPressState == 0x01);
   bool newKnobPressedLeft = (knobPressState == 0xA0);
   bool newKnobPressedUp = (knobPressState == 0x10);
   bool newKnobPressedRight = (knobPressState == 0x40);
   bool newKnobPressedDown = (knobPressState == 0x70);
 
-  if (current.knobPressed != newKnobPressed)
+  if (current.knobPressedCenter != newKnobPressedCenter)
   {
-    current.knobPressed = newKnobPressed;
+    current.knobPressedCenter = newKnobPressedCenter;
 
     if (statusDebugMode)
     {
@@ -590,18 +652,21 @@ void handleRotation(unsigned char *data, unsigned long timestamp)
   }
 }
 
-void handleButtonsInvestigation(unsigned char *data)
+void handleUnknown5E7(unsigned char *data)
 {
-  // 0x5E7: Button messages - UNDER INVESTIGATION
-  if (rawDebugMode)
-  {
-    printRawMessage("BUTTONS", IDRIVE_BUTTONS_ID, 8, data);
-  }
+  // 0x5E7: Unknown purpose - also triggered by crown contact
+  // Pattern: 05 67 04 02 00 00 FF FF when touching crown
+  // Consistent pattern suggests legitimate function:
+  // - Could be proximity sensor data, user detection, power state, etc.
+  // - May work in conjunction with 0x567 messages
 
-  // Look for patterns we've seen before
-  if (data[0] == 0x27 && data[1] == 0x67 && data[2] == 0x2D)
+  if (rawDebugMode && !filterUnknown)
   {
-    Serial.println("0x5E7: Possible button press pattern detected!");
+    printRawMessage("UNKNOWN_5E7", IDRIVE_UNKNOWN_5E7, 8, data);
+    if (data[0] == 0x05 && data[1] == 0x67 && data[2] == 0x04 && data[3] == 0x02)
+    {
+      Serial.println("📡 Crown contact pattern on 0x5E7 - investigating purpose");
+    }
   }
 }
 
