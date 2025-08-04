@@ -2,7 +2,7 @@
  * iDrive * CAN ID 0x25B: Combined rotation, knob press, and button messages
  *   - data[0]: sequence counter (increments with each event)
  *   - data[1]: encoder position value (changes for rotation)
- *   - data[3]: knob press state (0x00 = released, 0x01 = pressed)
+ *   - data[3]: knob press state (0x00 = released, 0x01 = center, 0x10 = up, 0x40 = right, 0x70 = down, 0xA0 = left)
  *   - data[4]: BACK button state (0x00 = released, 0x20 = pressed, 0x80 = touched)
  *   - data[5]: COM/OPTION button state (COM: 0x08=pressed, 0x20=touched; OPTION: 0x01=pressed, 0x04=touched; 0x00=released)
  *   - data[6]: MEDIA/NAV button state (MEDIA: 0xC1=pressed, 0xC4=touched; NAV: 0xC8=pressed, 0xE0=touched; 0xC0=released)
@@ -58,6 +58,10 @@ struct iDriveState
   // CONFIRMED working states
   bool knobPressed = false;         // Physical knob press (0x567 data[5] = 0x00)
   bool knobTouched = false;         // Surface touch without rotation
+  bool knobPressedLeft = false;     // Knob pressed left (0x25B data[3] = 0xA0)
+  bool knobPressedUp = false;       // Knob pressed up (0x25B data[3] = 0x10)
+  bool knobPressedRight = false;    // Knob pressed right (0x25B data[3] = 0x40)
+  bool knobPressedDown = false;     // Knob pressed down (0x25B data[3] = 0x70)
   bool backButtonPressed = false;   // BACK button pressed (0x25B data[4] = 0x20)
   bool backButtonTouched = false;   // BACK button touched (0x25B data[4] = 0x80)
   bool comButtonPressed = false;    // COM button pressed (0x25B data[5] = 0x08)
@@ -274,6 +278,11 @@ void handleRotation(unsigned char *data, unsigned long timestamp)
 
   // Handle knob press (data[3])
   bool newKnobPressed = (knobPressState == 0x01);
+  bool newKnobPressedLeft = (knobPressState == 0xA0);
+  bool newKnobPressedUp = (knobPressState == 0x10);
+  bool newKnobPressedRight = (knobPressState == 0x40);
+  bool newKnobPressedDown = (knobPressState == 0x70);
+
   if (current.knobPressed != newKnobPressed)
   {
     current.knobPressed = newKnobPressed;
@@ -284,11 +293,65 @@ void handleRotation(unsigned char *data, unsigned long timestamp)
       if (knobPressState == 0x00)
         Serial.println("RELEASED");
       else if (knobPressState == 0x01)
-        Serial.println("PRESSED");
+        Serial.println("PRESSED CENTER");
     }
   }
 
-  // Handle BACK button (data[4])
+  if (current.knobPressedLeft != newKnobPressedLeft)
+  {
+    current.knobPressedLeft = newKnobPressedLeft;
+
+    if (statusDebugMode)
+    {
+      Serial.print("0x25B: Knob ");
+      if (knobPressState == 0x00)
+        Serial.println("RELEASED");
+      else if (knobPressState == 0xA0)
+        Serial.println("PRESSED LEFT");
+    }
+  }
+
+  if (current.knobPressedUp != newKnobPressedUp)
+  {
+    current.knobPressedUp = newKnobPressedUp;
+
+    if (statusDebugMode)
+    {
+      Serial.print("0x25B: Knob ");
+      if (knobPressState == 0x00)
+        Serial.println("RELEASED");
+      else if (knobPressState == 0x10)
+        Serial.println("PRESSED UP");
+    }
+  }
+
+  if (current.knobPressedRight != newKnobPressedRight)
+  {
+    current.knobPressedRight = newKnobPressedRight;
+
+    if (statusDebugMode)
+    {
+      Serial.print("0x25B: Knob ");
+      if (knobPressState == 0x00)
+        Serial.println("RELEASED");
+      else if (knobPressState == 0x40)
+        Serial.println("PRESSED RIGHT");
+    }
+  }
+
+  if (current.knobPressedDown != newKnobPressedDown)
+  {
+    current.knobPressedDown = newKnobPressedDown;
+
+    if (statusDebugMode)
+    {
+      Serial.print("0x25B: Knob ");
+      if (knobPressState == 0x00)
+        Serial.println("RELEASED");
+      else if (knobPressState == 0x70)
+        Serial.println("PRESSED DOWN");
+    }
+  } // Handle BACK button (data[4])
   bool newBackPressed = (backButtonState == 0x20);
   bool newBackTouched = (backButtonState == 0x80);
   if (current.backButtonPressed != newBackPressed || current.backButtonTouched != newBackTouched)
