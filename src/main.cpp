@@ -1,5 +1,13 @@
 /*
- * iDrive Controller CAN Bus Interpreter - Reworked Version
+ * iDrive * CAN ID 0x25B: Combined rotation, knob press, and button messages
+ *   - data[0]: sequence counter (increments with each event)
+ *   - data[1]: encoder position value (changes for rotation)
+ *   - data[3]: knob press state (0x00 = released, 0x01 = pressed)
+ *   - data[4]: BACK button state (0x00 = released, 0x20 = pressed, 0x80 = touched)
+ *   - data[5]: COM/OPTION button state (COM: 0x08=pressed, 0x20=touched; OPTION: 0x01=pressed, 0x04=touched; 0x00=released)
+ *   - data[6]: MEDIA/NAV button state (MEDIA: 0xC1=pressed, 0xC4=touched; NAV: 0xC8=pressed, 0xE0=touched; 0xC0=released)
+ *   - data[7]: MAP/GLOBE button state (MAP: 0xC1=pressed, 0xC4=touched; GLOBE: 0xC8=pressed, 0xE0=touched; 0xC0=released)
+ *   - Used for: Rotation detection/direction AND knob press AND BACK/COM/OPTION/HOME/MEDIA/NAV/MAP/GLOBE button press/touch/releaseler CAN Bus Interpreter - Reworked Version
  * ========================================================
  *
  * This program interprets CAN messages from a BMW iDrive controller knob.
@@ -15,9 +23,10 @@
  *   - data[0]: sequence counter (increments with each event)
  *   - data[1]: encoder position value (changes for rotation)
  *   - data[4]: BACK button state (0x00 = released, 0x20 = pressed, 0x80 = touched)
- *   - data[5]: COM/HOME button state (COM: 0x08=pressed, 0x20=touched; HOME: 0x04=pressed, 0x10=touched; 0x00=released)
- *   - data[6]: MEDIA button state (0xC0 = released, 0xC1 = pressed, 0xC4 = touched)
- *   - Used for: Rotation detection/direction AND BACK/COM/HOME/MEDIA button press/touch/release
+ *   - data[5]: COM/OPTION button state (COM: 0x08=pressed, 0x20=touched; OPTION: 0x01=pressed, 0x04=touched; 0x00=released)
+ *   - data[6]: MEDIA/NAV button state (MEDIA: 0xC1=pressed, 0xC4=touched; NAV: 0xC8=pressed, 0xE0=touched; 0xC0=released)
+ *   - data[7]: MAP/GLOBE button state (MAP: 0xC1=pressed, 0xC4=touched; GLOBE: 0xC8=pressed, 0xE0=touched; 0xC0=released)
+ *   - Used for: Rotation detection/direction AND BACK/COM/OPTION/HOME/MEDIA/NAV/MAP/GLOBE button press/touch/release
  *
  * UNDER INVESTIGATION (raw messages printed):
  * CAN ID 0x5E7: Button press messages
@@ -47,18 +56,26 @@ MCP_CAN CAN(CAN_CS);
 struct iDriveState
 {
   // CONFIRMED working states
-  bool knobPressed = false;        // Physical knob press (0x567 data[5] = 0x00)
-  bool knobTouched = false;        // Surface touch without rotation
-  bool backButtonPressed = false;  // BACK button pressed (0x25B data[4] = 0x20)
-  bool backButtonTouched = false;  // BACK button touched (0x25B data[4] = 0x80)
-  bool comButtonPressed = false;   // COM button pressed (0x25B data[5] = 0x08)
-  bool comButtonTouched = false;   // COM button touched (0x25B data[5] = 0x20)
-  bool homeButtonPressed = false;  // HOME button pressed (0x25B data[5] = 0x04)
-  bool homeButtonTouched = false;  // HOME button touched (0x25B data[5] = 0x10)
-  bool mediaButtonPressed = false; // MEDIA button pressed (0x25B data[6] = 0xC1)
-  bool mediaButtonTouched = false; // MEDIA button touched (0x25B data[6] = 0xC4)
-  int rotationDirection = 0;       // -1 = CCW, 0 = none, 1 = CW
-  int stepPosition = 0;            // Cumulative rotation steps
+  bool knobPressed = false;         // Physical knob press (0x567 data[5] = 0x00)
+  bool knobTouched = false;         // Surface touch without rotation
+  bool backButtonPressed = false;   // BACK button pressed (0x25B data[4] = 0x20)
+  bool backButtonTouched = false;   // BACK button touched (0x25B data[4] = 0x80)
+  bool comButtonPressed = false;    // COM button pressed (0x25B data[5] = 0x08)
+  bool comButtonTouched = false;    // COM button touched (0x25B data[5] = 0x20)
+  bool optionButtonPressed = false; // OPTION button pressed (0x25B data[5] = 0x01)
+  bool optionButtonTouched = false; // OPTION button touched (0x25B data[5] = 0x04)
+  bool homeButtonPressed = false;   // HOME button pressed (0x25B data[5] = 0x04)
+  bool homeButtonTouched = false;   // HOME button touched (0x25B data[5] = 0x10)
+  bool mediaButtonPressed = false;  // MEDIA button pressed (0x25B data[6] = 0xC1)
+  bool mediaButtonTouched = false;  // MEDIA button touched (0x25B data[6] = 0xC4)
+  bool navButtonPressed = false;    // NAV button pressed (0x25B data[6] = 0xC8)
+  bool navButtonTouched = false;    // NAV button touched (0x25B data[6] = 0xE0)
+  bool mapButtonPressed = false;    // MAP button pressed (0x25B data[7] = 0xC1)
+  bool mapButtonTouched = false;    // MAP button touched (0x25B data[7] = 0xC4)
+  bool globeButtonPressed = false;  // GLOBE button pressed (0x25B data[7] = 0xC8)
+  bool globeButtonTouched = false;  // GLOBE button touched (0x25B data[7] = 0xE0)
+  int rotationDirection = 0;        // -1 = CCW, 0 = none, 1 = CW
+  int stepPosition = 0;             // Cumulative rotation steps
 
   // Sequence tracking for 0x25B messages
   uint8_t sequenceCounter = 0;
@@ -246,200 +263,205 @@ void handleKnobStatus(unsigned char *data, unsigned long timestamp)
 
 void handleRotation(unsigned char *data, unsigned long timestamp)
 {
-  // 0x25B: Handles rotation, BACK button, COM button, and MEDIA button messages
+  // 0x25B: Handles rotation, knob press, and all button messages
   uint8_t newSequence = data[0];
   uint8_t newEncoder = data[1];
+  uint8_t knobPressState = data[3];
   uint8_t backButtonState = data[4];
   uint8_t comButtonState = data[5];
   uint8_t mediaButtonState = data[6];
+  uint8_t mapButtonState = data[7];
 
-  // Handle BACK button press/touch state (data[4])
-  bool newBackPressed = (backButtonState == 0x20);
-  bool newBackTouched = (backButtonState == 0x80);
-
-  // Check for BACK button press state change
-  if (current.backButtonPressed != newBackPressed)
+  // Handle knob press (data[3])
+  bool newKnobPressed = (knobPressState == 0x01);
+  if (current.knobPressed != newKnobPressed)
   {
-    current.backButtonPressed = newBackPressed;
+    current.knobPressed = newKnobPressed;
 
     if (statusDebugMode)
     {
-      Serial.print("0x25B: BACK button ");
-      Serial.print(newBackPressed ? "PRESSED" : "UNPRESSED");
-      Serial.print(" (data[4]=0x");
-      Serial.print(backButtonState, HEX);
-      Serial.println(")");
+      Serial.print("0x25B: Knob ");
+      if (knobPressState == 0x00)
+        Serial.println("RELEASED");
+      else if (knobPressState == 0x01)
+        Serial.println("PRESSED");
     }
   }
 
-  // Check for BACK button touch state change
-  if (current.backButtonTouched != newBackTouched)
+  // Handle BACK button (data[4])
+  bool newBackPressed = (backButtonState == 0x20);
+  bool newBackTouched = (backButtonState == 0x80);
+  if (current.backButtonPressed != newBackPressed || current.backButtonTouched != newBackTouched)
   {
+    current.backButtonPressed = newBackPressed;
     current.backButtonTouched = newBackTouched;
 
     if (statusDebugMode)
     {
       Serial.print("0x25B: BACK button ");
-      Serial.print(newBackTouched ? "TOUCHED" : "UNTOUCHED");
-      Serial.print(" (data[4]=0x");
-      Serial.print(backButtonState, HEX);
-      Serial.println(")");
+      if (backButtonState == 0x00)
+        Serial.println("RELEASED");
+      else if (backButtonState == 0x20)
+        Serial.println("PRESSED");
+      else if (backButtonState == 0x80)
+        Serial.println("TOUCHED");
     }
   }
 
-  // Handle COM button press/touch state (data[5])
+  // Handle COM button (data[5])
   bool newComPressed = (comButtonState == 0x08);
   bool newComTouched = (comButtonState == 0x20);
 
-  // Check for COM button press state change
-  if (current.comButtonPressed != newComPressed)
+  // Handle OPTION button (data[5] - different values)
+  bool newOptionPressed = (comButtonState == 0x01);
+  bool newOptionTouched = (comButtonState == 0x04);
+
+  // Handle HOME button (data[4] - different values)
+  bool newHomePressed = (backButtonState == 0x04);
+  bool newHomeTouched = (backButtonState == 0x10);
+
+  // Check for COM button state changes
+  if (current.comButtonPressed != newComPressed || current.comButtonTouched != newComTouched)
   {
     current.comButtonPressed = newComPressed;
-
-    if (statusDebugMode)
-    {
-      Serial.print("0x25B: COM button ");
-      Serial.print(newComPressed ? "PRESSED" : "UNPRESSED");
-      Serial.print(" (data[5]=0x");
-      Serial.print(comButtonState, HEX);
-      Serial.println(")");
-    }
-  }
-
-  // Check for COM button touch state change
-  if (current.comButtonTouched != newComTouched)
-  {
     current.comButtonTouched = newComTouched;
 
     if (statusDebugMode)
     {
       Serial.print("0x25B: COM button ");
-      Serial.print(newComTouched ? "TOUCHED" : "UNTOUCHED");
-      Serial.print(" (data[5]=0x");
-      Serial.print(comButtonState, HEX);
-      Serial.println(")");
+      if (comButtonState == 0x00)
+        Serial.println("RELEASED");
+      else if (comButtonState == 0x08)
+        Serial.println("PRESSED");
+      else if (comButtonState == 0x20)
+        Serial.println("TOUCHED");
     }
   }
 
-  // Handle HOME button press/touch state (data[5] - different values)
-  bool newHomePressed = (comButtonState == 0x04);
-  bool newHomeTouched = (comButtonState == 0x10);
-
-  // Check for HOME button press state change
-  if (current.homeButtonPressed != newHomePressed)
+  // Check for OPTION button state changes
+  if (current.optionButtonPressed != newOptionPressed || current.optionButtonTouched != newOptionTouched)
   {
-    current.homeButtonPressed = newHomePressed;
+    current.optionButtonPressed = newOptionPressed;
+    current.optionButtonTouched = newOptionTouched;
 
     if (statusDebugMode)
     {
-      Serial.print("0x25B: HOME button ");
-      Serial.print(newHomePressed ? "PRESSED" : "UNPRESSED");
-      Serial.print(" (data[5]=0x");
-      Serial.print(comButtonState, HEX);
-      Serial.println(")");
+      Serial.print("0x25B: OPTION button ");
+      if (comButtonState == 0x00)
+        Serial.println("RELEASED");
+      else if (comButtonState == 0x01)
+        Serial.println("PRESSED");
+      else if (comButtonState == 0x04)
+        Serial.println("TOUCHED");
     }
   }
 
-  // Check for HOME button touch state change
-  if (current.homeButtonTouched != newHomeTouched)
+  // Check for HOME button state changes
+  if (current.homeButtonPressed != newHomePressed || current.homeButtonTouched != newHomeTouched)
   {
+    current.homeButtonPressed = newHomePressed;
     current.homeButtonTouched = newHomeTouched;
 
     if (statusDebugMode)
     {
       Serial.print("0x25B: HOME button ");
-      Serial.print(newHomeTouched ? "TOUCHED" : "UNTOUCHED");
-      Serial.print(" (data[5]=0x");
-      Serial.print(comButtonState, HEX);
-      Serial.println(")");
+      if (backButtonState == 0x00)
+        Serial.println("RELEASED");
+      else if (backButtonState == 0x04)
+        Serial.println("PRESSED");
+      else if (backButtonState == 0x10)
+        Serial.println("TOUCHED");
+      else
+      {
+        Serial.print("UNKNOWN STATE (data[5]=0x");
+        Serial.print(backButtonState, HEX);
+        Serial.println(")");
+      }
     }
   }
 
-  // Handle MEDIA button press/touch state (data[6])
+  // Handle MEDIA button (data[6])
   bool newMediaPressed = (mediaButtonState == 0xC1);
   bool newMediaTouched = (mediaButtonState == 0xC4);
 
-  // Check for MEDIA button press state change
-  if (current.mediaButtonPressed != newMediaPressed)
+  // Handle NAV button (data[6] - different values)
+  bool newNavPressed = (mediaButtonState == 0xC8);
+  bool newNavTouched = (mediaButtonState == 0xE0);
+
+  if (current.mediaButtonPressed != newMediaPressed || current.mediaButtonTouched != newMediaTouched)
   {
     current.mediaButtonPressed = newMediaPressed;
-
-    if (statusDebugMode)
-    {
-      Serial.print("0x25B: MEDIA button ");
-      Serial.print(newMediaPressed ? "PRESSED" : "UNPRESSED");
-      Serial.print(" (data[6]=0x");
-      Serial.print(mediaButtonState, HEX);
-      Serial.println(")");
-    }
-  }
-
-  // Check for MEDIA button touch state change
-  if (current.mediaButtonTouched != newMediaTouched)
-  {
     current.mediaButtonTouched = newMediaTouched;
 
     if (statusDebugMode)
     {
       Serial.print("0x25B: MEDIA button ");
-      Serial.print(newMediaTouched ? "TOUCHED" : "UNTOUCHED");
-      Serial.print(" (data[6]=0x");
-      Serial.print(mediaButtonState, HEX);
-      Serial.println(")");
+      if (mediaButtonState == 0xC0)
+        Serial.println("RELEASED");
+      else if (mediaButtonState == 0xC1)
+        Serial.println("PRESSED");
+      else if (mediaButtonState == 0xC4)
+        Serial.println("TOUCHED");
     }
   }
 
-  // Report combined button states for clarity
-  if (statusDebugMode && (current.backButtonPressed != previous.backButtonPressed || current.backButtonTouched != previous.backButtonTouched))
+  if (current.navButtonPressed != newNavPressed || current.navButtonTouched != newNavTouched)
   {
-    Serial.print("0x25B: BACK button state: ");
-    if (backButtonState == 0x00)
-      Serial.println("RELEASED");
-    else if (backButtonState == 0x20)
-      Serial.println("PRESSED");
-    else if (backButtonState == 0x80)
-      Serial.println("TOUCHED");
-    else
-      Serial.println("UNKNOWN (0x" + String(backButtonState, HEX) + ")");
+    current.navButtonPressed = newNavPressed;
+    current.navButtonTouched = newNavTouched;
+
+    if (statusDebugMode)
+    {
+      Serial.print("0x25B: NAV button ");
+      if (mediaButtonState == 0xC0)
+        Serial.println("RELEASED");
+      else if (mediaButtonState == 0xC8)
+        Serial.println("PRESSED");
+      else if (mediaButtonState == 0xE0)
+        Serial.println("TOUCHED");
+    }
   }
 
-  if (statusDebugMode && (current.comButtonPressed != previous.comButtonPressed || current.comButtonTouched != previous.comButtonTouched))
+  // Handle MAP button (data[7])
+  bool newMapPressed = (mapButtonState == 0xC1);
+  bool newMapTouched = (mapButtonState == 0xC4);
+
+  // Handle GLOBE button (data[7] - different values)
+  bool newGlobePressed = (mapButtonState == 0xC8);
+  bool newGlobeTouched = (mapButtonState == 0xE0);
+
+  if (current.mapButtonPressed != newMapPressed || current.mapButtonTouched != newMapTouched)
   {
-    Serial.print("0x25B: COM button state: ");
-    if (comButtonState == 0x00)
-      Serial.println("RELEASED");
-    else if (comButtonState == 0x08)
-      Serial.println("PRESSED");
-    else if (comButtonState == 0x20)
-      Serial.println("TOUCHED");
-    else
-      Serial.println("UNKNOWN (0x" + String(comButtonState, HEX) + ")");
+    current.mapButtonPressed = newMapPressed;
+    current.mapButtonTouched = newMapTouched;
+
+    if (statusDebugMode)
+    {
+      Serial.print("0x25B: MAP button ");
+      if (mapButtonState == 0xC0)
+        Serial.println("RELEASED");
+      else if (mapButtonState == 0xC1)
+        Serial.println("PRESSED");
+      else if (mapButtonState == 0xC4)
+        Serial.println("TOUCHED");
+    }
   }
 
-  if (statusDebugMode && (current.homeButtonPressed != previous.homeButtonPressed || current.homeButtonTouched != previous.homeButtonTouched))
+  if (current.globeButtonPressed != newGlobePressed || current.globeButtonTouched != newGlobeTouched)
   {
-    Serial.print("0x25B: HOME button state: ");
-    if (comButtonState == 0x00)
-      Serial.println("RELEASED");
-    else if (comButtonState == 0x04)
-      Serial.println("PRESSED");
-    else if (comButtonState == 0x10)
-      Serial.println("TOUCHED");
-    else
-      Serial.println("UNKNOWN (0x" + String(comButtonState, HEX) + ")");
-  }
+    current.globeButtonPressed = newGlobePressed;
+    current.globeButtonTouched = newGlobeTouched;
 
-  if (statusDebugMode && (current.mediaButtonPressed != previous.mediaButtonPressed || current.mediaButtonTouched != previous.mediaButtonTouched))
-  {
-    Serial.print("0x25B: MEDIA button state: ");
-    if (mediaButtonState == 0xC0)
-      Serial.println("RELEASED");
-    else if (mediaButtonState == 0xC1)
-      Serial.println("PRESSED");
-    else if (mediaButtonState == 0xC4)
-      Serial.println("TOUCHED");
-    else
-      Serial.println("UNKNOWN (0x" + String(mediaButtonState, HEX) + ")");
+    if (statusDebugMode)
+    {
+      Serial.print("0x25B: GLOBE button ");
+      if (mapButtonState == 0xC0)
+        Serial.println("RELEASED");
+      else if (mapButtonState == 0xC8)
+        Serial.println("PRESSED");
+      else if (mapButtonState == 0xE0)
+        Serial.println("TOUCHED");
+    }
   }
 
   // Handle rotation detection (data[0] and data[1])
