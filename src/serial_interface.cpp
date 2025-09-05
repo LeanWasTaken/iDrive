@@ -1,0 +1,71 @@
+#include "serial_interface.h"
+
+void handleSerialCommands() {
+    if (!Serial.available()) return;
+    
+    char cmd = Serial.read();
+    
+    switch (cmd) {
+        case 'r': case 'R':
+            rawDebugMode = !rawDebugMode;
+            Serial.print("Raw debug: ");
+            Serial.println(rawDebugMode ? "ON" : "OFF");
+            break;
+            
+        case 's': case 'S':
+            statusDebugMode = !statusDebugMode;
+            Serial.print("Status debug: ");
+            Serial.println(statusDebugMode ? "ON" : "OFF");
+            break;
+            
+        case 'f': case 'F':
+            filterUnknown = !filterUnknown;
+            Serial.print("Filter: ");
+            Serial.println(filterUnknown ? "ON" : "OFF");
+            break;
+            
+        case 'w': case 'W':
+            sendWakeUp();
+            break;
+            
+        case 'k': case 'K':
+            sendKeepAlive();
+            break;
+            
+        case '+': case '=':
+            adjustBrightness(1);
+            break;
+            
+        case '-': case '_':
+            adjustBrightness(-1);
+            break;
+            
+        case '0': case '1': case '2': case '3': case '4':
+        case '5': case '6': case '7': case '8': case '9': {
+            uint8_t level = (cmd == '0') ? 0x00 : 0x20 + ((cmd - '1') * 0x18);
+            if (level > 0xFD) level = 0xFD;
+            setBrightness(level);
+            Serial.print("Level ");
+            Serial.print(cmd);
+            Serial.print(" (");
+            Serial.print(level ? (level * 100) / 0xFD : 0);
+            Serial.println("%)");
+            break;
+        }
+        
+        case 'h': case 'H': case '?':
+            Serial.println("\nCommands:");
+            Serial.println("  r/s/f - Toggle debug modes");
+            Serial.println("  w/k   - Wake-up / Keep-alive (aint work, yet at least)");
+            Serial.println("  +/-   - Adjust brightness");
+            Serial.println("  0-9   - Set brightness level");
+            Serial.println("  h     - Help");
+            break;
+            
+        default:
+            Serial.print("Unknown: '");
+            Serial.print(cmd);
+            Serial.println("'");
+            break;
+    }
+}
