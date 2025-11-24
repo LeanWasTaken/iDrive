@@ -6,28 +6,22 @@ void handleSerialCommands() {
     char cmd = Serial.read();
     
     switch (cmd) {
-        case 'r': case 'R':
-            rawDebugMode = !rawDebugMode;
-            Serial.print("Raw debug: ");
-            Serial.println(rawDebugMode ? "ON" : "OFF");
+        case 'd': case 'D':
+            debugMode = (debugMode + 1) % 3;
+            Serial.print("Debug mode: ");
+            switch(debugMode) {
+                case 0:
+                    Serial.println("NORMAL (state changes only)");
+                    break;
+                case 1:
+                    Serial.println("DEBUG (known packets + state changes)");
+                    break;
+                case 2:
+                    Serial.println("RAW (all packets)");
+                    break;
+            }
             break;
-            
-        case 's': case 'S':
-            statusDebugMode = !statusDebugMode;
-            Serial.print("Status debug: ");
-            Serial.println(statusDebugMode ? "ON" : "OFF");
-            break;
-            
-        case 'f': case 'F':
-            filterUnknown = !filterUnknown;
-            Serial.print("Filter: ");
-            Serial.println(filterUnknown ? "ON" : "OFF");
-            break;
-            
-        case 'w': case 'W':
-            sendWakeUp();
-            break;
-            
+
         case 'k': case 'K':
             sendKeepAlive();
             break;
@@ -55,11 +49,15 @@ void handleSerialCommands() {
         
         case 'h': case 'H': case '?':
             Serial.println("\nCommands:");
-            Serial.println("  r/s/f - Toggle debug modes");
-            Serial.println("  w/k   - Wake-up / Keep-alive (aint work, yet at least)");
+            Serial.println("  d     - Cycle debug mode (Normal/Debug/Raw)");
+            Serial.println("  k     - Send keep-alive (0x510) - automatic every 500ms");
             Serial.println("  +/-   - Adjust brightness");
             Serial.println("  0-9   - Set brightness level");
             Serial.println("  h     - Help");
+            Serial.println("\nDebug Modes:");
+            Serial.println("  Normal: State changes only (buttons, knob, rotation)");
+            Serial.println("  Debug:  Known CAN packets + state changes");
+            Serial.println("  Raw:    All CAN packets");
             break;
             
         default:

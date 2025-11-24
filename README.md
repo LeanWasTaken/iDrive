@@ -4,7 +4,7 @@ A CAN bus interface for a BMW F44 iDrive controller using ESP32-S3 and MCP2515.
 
 ## Hardware
 
-- **Microcontroller:** ESP32-S3
+- **Microcontroller:** ESP32-S3 or ESP32-C3
 - **CAN Interface:** MCP2515 CAN controller breakout
 - **iDrive Controller:** ZBE_07_HI_AT_RL_MATT (pretty likely compatible with other models such as G20, F40, etc.)
   - Hardware Version: 05.01.00
@@ -12,6 +12,8 @@ A CAN bus interface for a BMW F44 iDrive controller using ESP32-S3 and MCP2515.
 - **CAN Bus Speed:** 500 kbps
 
 ## Wiring
+
+### ESP32-S3
 
 | ESP32-S3 | MCP2515 | iDrive Controller |
 | -------- | ------- | ----------------- |
@@ -22,6 +24,21 @@ A CAN bus interface for a BMW F44 iDrive controller using ESP32-S3 and MCP2515.
 | GPIO 23  | SI      | -                 |
 | GPIO 19  | SO      | -                 |
 | GPIO 18  | SCK     | -                 |
+| -        | -       | +12V              |
+| -        | -       | CAN H             |
+| -        | -       | CAN L             |
+
+### ESP32-C3 (Adafruit QT Py)
+
+| ESP32-C3 | MCP2515 | iDrive Controller |
+| -------- | ------- | ----------------- |
+| GPIO 10  | CS      | -                 |
+| GPIO 14  | INT     | -                 |
+| GPIO 2   | SCK     | -                 |
+| GPIO 3   | MISO    | -                 |
+| GPIO 4   | MOSI    | -                 |
+| 3.3V     | VCC     | -                 |
+| GND      | GND     | GND               |
 | -        | -       | +12V              |
 | -        | -       | CAN H             |
 | -        | -       | CAN L             |
@@ -41,15 +58,14 @@ A CAN bus interface for a BMW F44 iDrive controller using ESP32-S3 and MCP2515.
 ### Not Working
 
 - **Touchpad:** Not implemented yet
-- **Wake-up/ping via CAN:** Knob has to be pressed and interacted with to keep it running (feel free to send a PR if you figure this out)
+- **Wake-up via CAN:** Knob has to be pressed to wake it up. (feel free to send a PR if you figure this out)
 
 ## Usage
 
 ### Serial Commands
 
 ```
-r/s/f - Toggle debug modes (raw/status/filter)
-w/k   - Send wake-up/keep-alive packets
+d - Toggle debug modes (raw/known/status)
 +/-   - Increase/decrease brightness  
 0-9   - Set brightness level (0=off, 9=max)
 h     - Show help menu
