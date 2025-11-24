@@ -7,8 +7,9 @@
 
 void processCanMessages();
 void handleUnknown567(unsigned char *data, unsigned long timestamp);
-void handleController(unsigned char *data, unsigned long timestamp);  
-void handleUnknown5E7(unsigned char *data);
-void printRawMessage(const char *type, unsigned long id, unsigned char len, unsigned char *data);
+void handleController(unsigned char *data, unsigned long timestamp);
+void handleUnknown5E7(unsigned char *data, unsigned long timestamp);
+void handleGearIndication(unsigned char *data, unsigned long timestamp);
+void printRawMessage(const char *type, unsigned long id, unsigned char len, unsigned char *data, unsigned long timestamp);
 
 #endif

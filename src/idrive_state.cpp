@@ -2,9 +2,8 @@
 #include "config.h"
 
 // Global variables
-bool rawDebugMode = true;
-bool statusDebugMode = true; 
-bool filterUnknown = true;
+// Debug mode: 0 = Normal (state changes only), 1 = Debug (known packets), 2 = Raw (all packets)
+uint8_t debugMode = 0;
 unsigned long startMillis;
 MCP_CAN CAN(CAN_CS);
 

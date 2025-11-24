@@ -2,18 +2,19 @@
 
 void processCanMessages() {
     if (digitalRead(CAN_INT)) return;
-    
+
     unsigned long rxId;
     unsigned char len;
     unsigned char rxBuf[8];
 
     if (CAN.readMsgBuf(&rxId, &len, rxBuf) != CAN_OK) return;
-    
+
     unsigned long currentTime = millis();
     previous = current;
 
-    if (rawDebugMode && rxId != IDRIVE_DATA_STREAM_ID)
-        printRawMessage("RAW", rxId, len, rxBuf);
+    if (debugMode == 2 && rxId != IDRIVE_DATA_STREAM_ID) {
+        printRawMessage("RAW", rxId, len, rxBuf, currentTime);
+    }
 
     switch (rxId) {
         case IDRIVE_UNKNOWN_567:
@@ -23,19 +24,22 @@ void processCanMessages() {
             handleController(rxBuf, currentTime);
             break;
         case IDRIVE_UNKNOWN_5E7:
-            handleUnknown5E7(rxBuf);
+            handleUnknown5E7(rxBuf, currentTime);
+            break;
+        case IDRIVE_GEAR_INDICATION_ID:
+            handleGearIndication(rxBuf, currentTime);
             break;
         default:
-            if (rawDebugMode && rxId != IDRIVE_DATA_STREAM_ID)
-                printRawMessage("UNKNOWN", rxId, len, rxBuf);
+            if (debugMode == 2 && rxId != IDRIVE_DATA_STREAM_ID) {
+                printRawMessage("UNKNOWN", rxId, len, rxBuf, currentTime);
+            }
             break;
     }
 }
 
 void handleUnknown567(unsigned char *data, unsigned long timestamp) {
-    if (rawDebugMode && !filterUnknown) {
-        printRawMessage("ID_567", IDRIVE_UNKNOWN_567, 8, data);
-        Serial.println("Crown contact detected - no clue what ts does");
+    if (debugMode >= 1) {
+        printRawMessage("ID_567", IDRIVE_UNKNOWN_567, 8, data, timestamp);
     }
     current.last567Time = timestamp;
 }
@@ -54,7 +58,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     
     if (current.knobPressedCenter != newKnobCenter) {
         current.knobPressedCenter = newKnobCenter;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("Knob ");
             Serial.println(newKnobCenter ? "CENTER" : "RELEASED");
         }
@@ -62,7 +66,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     
     if (current.knobPressedLeft != newKnobLeft) {
         current.knobPressedLeft = newKnobLeft;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("Knob ");
             Serial.println(newKnobLeft ? "LEFT" : "RELEASED");
         }
@@ -70,7 +74,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     
     if (current.knobPressedUp != newKnobUp) {
         current.knobPressedUp = newKnobUp;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("Knob ");
             Serial.println(newKnobUp ? "UP" : "RELEASED");
         }
@@ -78,7 +82,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     
     if (current.knobPressedRight != newKnobRight) {
         current.knobPressedRight = newKnobRight;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("Knob ");
             Serial.println(newKnobRight ? "RIGHT" : "RELEASED");
         }
@@ -86,7 +90,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     
     if (current.knobPressedDown != newKnobDown) {
         current.knobPressedDown = newKnobDown;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("Knob ");
             Serial.println(newKnobDown ? "DOWN" : "RELEASED");
         }
@@ -101,7 +105,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     if (current.backButtonPressed != newBackPressed || current.backButtonTouched != newBackTouched) {
         current.backButtonPressed = newBackPressed;
         current.backButtonTouched = newBackTouched;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("BACK ");
             Serial.println(data[4] == 0x00 ? "RELEASED" : (data[4] == 0x20 ? "PRESSED" : "TOUCHED"));
         }
@@ -110,7 +114,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     if (current.homeButtonPressed != newHomePressed || current.homeButtonTouched != newHomeTouched) {
         current.homeButtonPressed = newHomePressed;
         current.homeButtonTouched = newHomeTouched;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("HOME ");
             Serial.println(data[4] == 0x00 ? "RELEASED" : (data[4] == 0x04 ? "PRESSED" : "TOUCHED"));
         }
@@ -124,7 +128,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     if (current.comButtonPressed != newComPressed || current.comButtonTouched != newComTouched) {
         current.comButtonPressed = newComPressed;
         current.comButtonTouched = newComTouched;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("COM ");
             Serial.println(data[5] == 0x00 ? "RELEASED" : (data[5] == 0x08 ? "PRESSED" : "TOUCHED"));
         }
@@ -133,7 +137,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     if (current.optionButtonPressed != newOptionPressed || current.optionButtonTouched != newOptionTouched) {
         current.optionButtonPressed = newOptionPressed;
         current.optionButtonTouched = newOptionTouched;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("OPTION ");
             Serial.println(data[5] == 0x00 ? "RELEASED" : (data[5] == 0x01 ? "PRESSED" : "TOUCHED"));
         }
@@ -147,7 +151,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     if (current.mediaButtonPressed != newMediaPressed || current.mediaButtonTouched != newMediaTouched) {
         current.mediaButtonPressed = newMediaPressed;
         current.mediaButtonTouched = newMediaTouched;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("MEDIA ");
             Serial.println(data[6] == 0xC0 ? "RELEASED" : (data[6] == 0xC1 ? "PRESSED" : "TOUCHED"));
         }
@@ -156,7 +160,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     if (current.navButtonPressed != newNavPressed || current.navButtonTouched != newNavTouched) {
         current.navButtonPressed = newNavPressed;
         current.navButtonTouched = newNavTouched;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("NAV ");
             Serial.println(data[6] == 0xC0 ? "RELEASED" : (data[6] == 0xC8 ? "PRESSED" : "TOUCHED"));
         }
@@ -170,7 +174,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     if (current.mapButtonPressed != newMapPressed || current.mapButtonTouched != newMapTouched) {
         current.mapButtonPressed = newMapPressed;
         current.mapButtonTouched = newMapTouched;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("MAP ");
             Serial.println(data[7] == 0xC0 ? "RELEASED" : (data[7] == 0xC1 ? "PRESSED" : "TOUCHED"));
         }
@@ -179,7 +183,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     if (current.globeButtonPressed != newGlobePressed || current.globeButtonTouched != newGlobeTouched) {
         current.globeButtonPressed = newGlobePressed;
         current.globeButtonTouched = newGlobeTouched;
-        if (statusDebugMode) {
+        if (debugMode == 0 || debugMode == 1) {
             Serial.print("GLOBE ");
             Serial.println(data[7] == 0xC0 ? "RELEASED" : (data[7] == 0xC8 ? "PRESSED" : "TOUCHED"));
         }
@@ -197,7 +201,7 @@ void handleController(unsigned char *data, unsigned long timestamp) {
                 current.rotationDirection = (encoderDiff > 0) ? 1 : -1;
                 current.stepPosition += current.rotationDirection;
                 
-                if (statusDebugMode) {
+                if (debugMode == 0 || debugMode == 1) {
                     Serial.print("Rotation ");
                     Serial.print(current.rotationDirection == 1 ? "CW" : "CCW");
                     Serial.print(" (");
@@ -219,16 +223,28 @@ void handleController(unsigned char *data, unsigned long timestamp) {
     }
 }
 
-void handleUnknown5E7(unsigned char *data) {
-    if (rawDebugMode && !filterUnknown) {
-        printRawMessage("ID_5E7", IDRIVE_UNKNOWN_5E7, 8, data);
-        if (data[0] == 0x05 && data[1] == 0x67 && data[2] == 0x04 && data[3] == 0x02)
-            Serial.println("Crown contact pattern detected - no clue what ts does");
+void handleUnknown5E7(unsigned char *data, unsigned long timestamp) {
+    if (debugMode >= 1) {
+        printRawMessage("ID_5E7", IDRIVE_UNKNOWN_5E7, 8, data, timestamp);
     }
 }
 
-void printRawMessage(const char *type, unsigned long id, unsigned char len, unsigned char *data) {
+void handleGearIndication(unsigned char *data, unsigned long timestamp) {
+    // 0x3FD is used for gear indication - no processing needed, yet...
+    if (debugMode >= 1) {
+        printRawMessage("GEAR", IDRIVE_GEAR_INDICATION_ID, 8, data, timestamp);
+    }
+}
+
+void printRawMessage(const char *type, unsigned long id, unsigned char len, unsigned char *data, unsigned long timestamp) {
     Serial.print("[");
+    if (timestamp < 100000) Serial.print(" ");
+    if (timestamp < 10000) Serial.print(" ");
+    if (timestamp < 1000) Serial.print(" ");
+    if (timestamp < 100) Serial.print(" ");
+    if (timestamp < 10) Serial.print(" ");
+    Serial.print(timestamp);
+    Serial.print("ms] [");
     Serial.print(type);
     Serial.print("] 0x");
     Serial.print(id, HEX);

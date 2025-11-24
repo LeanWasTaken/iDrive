@@ -38,6 +38,8 @@ struct iDriveState
   unsigned long last567Time = 0;
   unsigned long last25BTime = 0;
   unsigned long lastKeepAliveTime = 0;
+  unsigned long lastStatusBurstTime = 0;
+  uint8_t statusBurstIndex = 0;
   bool wakeUpSequenceSent = false;
 };
 
