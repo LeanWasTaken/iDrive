@@ -6,7 +6,7 @@ A CAN bus interface for a BMW F44 iDrive controller using ESP32-S3 and MCP2515.
 
 - **Microcontroller:** ESP32-S3 or ESP32-C3
 - **CAN Interface:** MCP2515 CAN controller breakout
-- **iDrive Controller:** ZBE_07_HI_AT_RL_MATT (pretty likely compatible with other models such as G20, F40, etc.)
+- **iDrive Controller:** ZBE_07_HI_AT_RL_MATT (P/N. 9423197), pretty likely compatible with other models such as G20, F40, etc. as well.
   - Hardware Version: 05.01.00
   - Software Version: 05.08.00
 - **CAN Bus Speed:** 500 kbps
