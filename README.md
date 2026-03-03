@@ -38,8 +38,8 @@ A CAN bus interface for a BMW F44 iDrive controller using an ESP32-C3 with the n
 
 ### Not Working
 
-- **Touchpad:** Not implemented yet
-- **Wake-up via CAN:** Knob has to be pressed to wake it up. (feel free to send a PR if you figure this out)
+- **Touchpad:** Data stream (0x0BF) is received but not decoded yet
+- **Wake-up via CAN:** Center knob press required to wake the ZBE. Tested NM frames (0x510, 0x130, 0x440, 0x563, 0x12F) — none trigger wake. Likely needs a specific frame from the MGU/BDC that hasn't been identified yet. Sniffing a real F44 K-CAN at ignition would reveal it.
 
 ## Usage
 
@@ -47,6 +47,8 @@ A CAN bus interface for a BMW F44 iDrive controller using an ESP32-C3 with the n
 
 ```
 d     - Cycle debug mode (Normal/Debug/Raw)
+k     - Send keep-alive (0x510) — automatic every 500ms
+w     - Wake ZBE (not yet working via CAN)
 +/-   - Increase/decrease brightness
 0-9   - Set brightness level (0=off, 9=max)
 h     - Show help menu
