@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <SPI.h>
 #include "config.h"
 #include "idrive_state.h"
 #include "can_handlers.h"
@@ -15,28 +14,15 @@ void setup() {
     Serial.println("Starting iDrive Controller...");
 
     startMillis = millis();
-    pinMode(CAN_INT, INPUT);
 
-    // Initialize SPI with explicit pins for ESP32-C3 compatibility
-    // QT Py ESP32-C3: SCK=GPIO2, MISO=GPIO3, MOSI=GPIO4
-    // ESP32-S3: Uses default SPI pins
-    #ifdef CONFIG_IDF_TARGET_ESP32C3
-    SPI.begin(2, 3, 4, -1);  // SCK, MISO, MOSI
-    #else
-    SPI.begin();
-    #endif
-
-    Serial.println("SPI initialized");
-
-    if (CAN.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK) {
-        Serial.println("CAN Bus OK");
+    // Initialize TWAI (CAN) driver
+    if (twai_init()) {
+        Serial.println("TWAI (CAN) Bus OK");
     } else {
-        Serial.println("CAN Bus FAIL");
+        Serial.println("TWAI (CAN) Bus FAIL");
         while (1) delay(1000);
     }
 
-    CAN.setMode(MCP_NORMAL);
-    attachInterrupt(digitalPinToInterrupt(CAN_INT), []() {}, FALLING);
     current.lastKeepAliveTime = millis();
 
     Serial.println("iDrive Controller Ready");

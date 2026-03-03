@@ -1,13 +1,151 @@
 #include "can_handlers.h"
 
+namespace {
+
+struct KnobMapping {
+    const char *label;
+    uint8_t matchValue;
+    bool iDriveState::*pressedField;
+};
+
+constexpr KnobMapping KNOB_MAPPINGS[] = {
+    {"CENTER", 0x01, &iDriveState::knobPressedCenter},
+    {"LEFT",   0xA0, &iDriveState::knobPressedLeft},
+    {"UP",     0x10, &iDriveState::knobPressedUp},
+    {"RIGHT",  0x40, &iDriveState::knobPressedRight},
+    {"DOWN",   0x70, &iDriveState::knobPressedDown},
+};
+
+enum class ButtonState : uint8_t {
+    Released,
+    Pressed,
+    Touched,
+};
+
+struct ButtonDescriptor {
+    const char *label;
+    uint8_t byteIndex;
+    uint8_t pressedValue;
+    uint8_t touchedValue;
+    bool iDriveState::*pressedField;
+    bool iDriveState::*touchedField;
+};
+
+constexpr ButtonDescriptor BUTTON_MAPPINGS[] = {
+    {"BACK",   4, 0x20, 0x80, &iDriveState::backButtonPressed,  &iDriveState::backButtonTouched},
+    {"HOME",   4, 0x04, 0x10, &iDriveState::homeButtonPressed,  &iDriveState::homeButtonTouched},
+    {"COM",    5, 0x08, 0x20, &iDriveState::comButtonPressed,   &iDriveState::comButtonTouched},
+    {"OPTION", 5, 0x01, 0x04, &iDriveState::optionButtonPressed,&iDriveState::optionButtonTouched},
+    {"MEDIA",  6, 0xC1, 0xC4, &iDriveState::mediaButtonPressed, &iDriveState::mediaButtonTouched},
+    {"NAV",    6, 0xC8, 0xE0, &iDriveState::navButtonPressed,   &iDriveState::navButtonTouched},
+    {"MAP",    7, 0xC1, 0xC4, &iDriveState::mapButtonPressed,   &iDriveState::mapButtonTouched},
+    {"GLOBE",  7, 0xC8, 0xE0, &iDriveState::globeButtonPressed, &iDriveState::globeButtonTouched},
+};
+
+bool shouldLogStateChanges() {
+    return debugMode == 0 || debugMode == 1;
+}
+
+const char *toStateString(ButtonState state) {
+    switch (state) {
+        case ButtonState::Pressed: return "PRESSED";
+        case ButtonState::Touched: return "TOUCHED";
+        default: return "RELEASED";
+    }
+}
+
+void logKnobChange(const char *label, bool isPressed) {
+    if (!shouldLogStateChanges()) return;
+    Serial.print("Knob ");
+    Serial.println(isPressed ? label : "RELEASED");
+}
+
+void logButtonChange(const char *label, ButtonState state) {
+    if (!shouldLogStateChanges()) return;
+    Serial.print(label);
+    Serial.print(" ");
+    Serial.println(toStateString(state));
+}
+
+ButtonState decodeButtonState(uint8_t raw, const ButtonDescriptor &descriptor) {
+    if (raw == descriptor.pressedValue) return ButtonState::Pressed;
+    if (raw == descriptor.touchedValue) return ButtonState::Touched;
+    return ButtonState::Released;
+}
+
+void updateKnobStates(uint8_t knobState) {
+    for (const auto &mapping : KNOB_MAPPINGS) {
+        bool pressed = knobState == mapping.matchValue;
+        bool &stateField = current.*(mapping.pressedField);
+        if (stateField != pressed) {
+            stateField = pressed;
+            logKnobChange(mapping.label, pressed);
+        }
+    }
+}
+
+void updateButtonStates(const unsigned char *data) {
+    for (const auto &descriptor : BUTTON_MAPPINGS) {
+        ButtonState state = decodeButtonState(data[descriptor.byteIndex], descriptor);
+        bool pressed = state == ButtonState::Pressed;
+        bool touched = state == ButtonState::Touched;
+        bool &pressedField = current.*(descriptor.pressedField);
+        bool &touchedField = current.*(descriptor.touchedField);
+
+        if (pressedField != pressed || touchedField != touched) {
+            pressedField = pressed;
+            touchedField = touched;
+            logButtonChange(descriptor.label, state);
+        }
+    }
+}
+
+void updateRotation(uint8_t newSequence, uint8_t newEncoder) {
+    if (newSequence == current.sequenceCounter) {
+        current.rotationDirection = 0;
+        return;
+    }
+
+    if (!current.firstRotationMessage) {
+        int16_t encoderDiff = static_cast<int16_t>(newEncoder) - static_cast<int16_t>(current.lastEncoderValue);
+
+        if (encoderDiff > 127) {
+            encoderDiff -= 256;
+        } else if (encoderDiff < -127) {
+            encoderDiff += 256;
+        }
+
+        if (encoderDiff != 0) {
+            current.rotationDirection = (encoderDiff > 0) ? 1 : -1;
+            current.stepPosition += current.rotationDirection;
+
+            if (shouldLogStateChanges()) {
+                Serial.print("Rotation ");
+                Serial.print(current.rotationDirection == 1 ? "CW" : "CCW");
+                Serial.print(" (");
+                Serial.print(current.stepPosition);
+                Serial.println(")");
+            }
+        } else {
+            current.rotationDirection = 0;
+        }
+    } else {
+        current.firstRotationMessage = false;
+        current.rotationDirection = 0;
+    }
+
+    current.sequenceCounter = newSequence;
+    current.lastEncoderValue = newEncoder;
+}
+
+}  // namespace
+
 void processCanMessages() {
-    if (digitalRead(CAN_INT)) return;
+    uint32_t rxId;
+    uint8_t len;
+    uint8_t rxBuf[8];
 
-    unsigned long rxId;
-    unsigned char len;
-    unsigned char rxBuf[8];
-
-    if (CAN.readMsgBuf(&rxId, &len, rxBuf) != CAN_OK) return;
+    if (!twai_receive(&rxId, &len, rxBuf)) return;
 
     unsigned long currentTime = millis();
     previous = current;
@@ -44,183 +182,10 @@ void handleUnknown567(unsigned char *data, unsigned long timestamp) {
     current.last567Time = timestamp;
 }
 
-void handleController(unsigned char *data, unsigned long timestamp) {
-    uint8_t newSequence = data[0];
-    uint8_t newEncoder = data[1]; 
-    
-    // Handle knob press with release detection
-    uint8_t knobState = data[3];
-    bool newKnobCenter = (knobState == 0x01);
-    bool newKnobLeft = (knobState == 0xA0);
-    bool newKnobUp = (knobState == 0x10);
-    bool newKnobRight = (knobState == 0x40);
-    bool newKnobDown = (knobState == 0x70);
-    
-    if (current.knobPressedCenter != newKnobCenter) {
-        current.knobPressedCenter = newKnobCenter;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("Knob ");
-            Serial.println(newKnobCenter ? "CENTER" : "RELEASED");
-        }
-    }
-    
-    if (current.knobPressedLeft != newKnobLeft) {
-        current.knobPressedLeft = newKnobLeft;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("Knob ");
-            Serial.println(newKnobLeft ? "LEFT" : "RELEASED");
-        }
-    }
-    
-    if (current.knobPressedUp != newKnobUp) {
-        current.knobPressedUp = newKnobUp;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("Knob ");
-            Serial.println(newKnobUp ? "UP" : "RELEASED");
-        }
-    }
-    
-    if (current.knobPressedRight != newKnobRight) {
-        current.knobPressedRight = newKnobRight;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("Knob ");
-            Serial.println(newKnobRight ? "RIGHT" : "RELEASED");
-        }
-    }
-    
-    if (current.knobPressedDown != newKnobDown) {
-        current.knobPressedDown = newKnobDown;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("Knob ");
-            Serial.println(newKnobDown ? "DOWN" : "RELEASED");
-        }
-    }
-    
-    // Handle button state changes with touch/press detection
-    bool newBackPressed = (data[4] == 0x20);
-    bool newBackTouched = (data[4] == 0x80);
-    bool newHomePressed = (data[4] == 0x04);
-    bool newHomeTouched = (data[4] == 0x10);
-    
-    if (current.backButtonPressed != newBackPressed || current.backButtonTouched != newBackTouched) {
-        current.backButtonPressed = newBackPressed;
-        current.backButtonTouched = newBackTouched;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("BACK ");
-            Serial.println(data[4] == 0x00 ? "RELEASED" : (data[4] == 0x20 ? "PRESSED" : "TOUCHED"));
-        }
-    }
-    
-    if (current.homeButtonPressed != newHomePressed || current.homeButtonTouched != newHomeTouched) {
-        current.homeButtonPressed = newHomePressed;
-        current.homeButtonTouched = newHomeTouched;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("HOME ");
-            Serial.println(data[4] == 0x00 ? "RELEASED" : (data[4] == 0x04 ? "PRESSED" : "TOUCHED"));
-        }
-    }
-    
-    bool newComPressed = (data[5] == 0x08);
-    bool newComTouched = (data[5] == 0x20);
-    bool newOptionPressed = (data[5] == 0x01);
-    bool newOptionTouched = (data[5] == 0x04);
-    
-    if (current.comButtonPressed != newComPressed || current.comButtonTouched != newComTouched) {
-        current.comButtonPressed = newComPressed;
-        current.comButtonTouched = newComTouched;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("COM ");
-            Serial.println(data[5] == 0x00 ? "RELEASED" : (data[5] == 0x08 ? "PRESSED" : "TOUCHED"));
-        }
-    }
-    
-    if (current.optionButtonPressed != newOptionPressed || current.optionButtonTouched != newOptionTouched) {
-        current.optionButtonPressed = newOptionPressed;
-        current.optionButtonTouched = newOptionTouched;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("OPTION ");
-            Serial.println(data[5] == 0x00 ? "RELEASED" : (data[5] == 0x01 ? "PRESSED" : "TOUCHED"));
-        }
-    }
-    
-    bool newMediaPressed = (data[6] == 0xC1);
-    bool newMediaTouched = (data[6] == 0xC4);
-    bool newNavPressed = (data[6] == 0xC8);
-    bool newNavTouched = (data[6] == 0xE0);
-    
-    if (current.mediaButtonPressed != newMediaPressed || current.mediaButtonTouched != newMediaTouched) {
-        current.mediaButtonPressed = newMediaPressed;
-        current.mediaButtonTouched = newMediaTouched;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("MEDIA ");
-            Serial.println(data[6] == 0xC0 ? "RELEASED" : (data[6] == 0xC1 ? "PRESSED" : "TOUCHED"));
-        }
-    }
-    
-    if (current.navButtonPressed != newNavPressed || current.navButtonTouched != newNavTouched) {
-        current.navButtonPressed = newNavPressed;
-        current.navButtonTouched = newNavTouched;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("NAV ");
-            Serial.println(data[6] == 0xC0 ? "RELEASED" : (data[6] == 0xC8 ? "PRESSED" : "TOUCHED"));
-        }
-    }
-    
-    bool newMapPressed = (data[7] == 0xC1);
-    bool newMapTouched = (data[7] == 0xC4);
-    bool newGlobePressed = (data[7] == 0xC8);
-    bool newGlobeTouched = (data[7] == 0xE0);
-    
-    if (current.mapButtonPressed != newMapPressed || current.mapButtonTouched != newMapTouched) {
-        current.mapButtonPressed = newMapPressed;
-        current.mapButtonTouched = newMapTouched;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("MAP ");
-            Serial.println(data[7] == 0xC0 ? "RELEASED" : (data[7] == 0xC1 ? "PRESSED" : "TOUCHED"));
-        }
-    }
-    
-    if (current.globeButtonPressed != newGlobePressed || current.globeButtonTouched != newGlobeTouched) {
-        current.globeButtonPressed = newGlobePressed;
-        current.globeButtonTouched = newGlobeTouched;
-        if (debugMode == 0 || debugMode == 1) {
-            Serial.print("GLOBE ");
-            Serial.println(data[7] == 0xC0 ? "RELEASED" : (data[7] == 0xC8 ? "PRESSED" : "TOUCHED"));
-        }
-    }
-    
-    // Handle rotation
-    if (newSequence != current.sequenceCounter) {
-        if (!current.firstRotationMessage) {
-            int16_t encoderDiff = (int16_t)newEncoder - (int16_t)current.lastEncoderValue;
-            
-            if (encoderDiff > 127) encoderDiff -= 256;
-            else if (encoderDiff < -127) encoderDiff += 256;
-            
-            if (encoderDiff != 0) {
-                current.rotationDirection = (encoderDiff > 0) ? 1 : -1;
-                current.stepPosition += current.rotationDirection;
-                
-                if (debugMode == 0 || debugMode == 1) {
-                    Serial.print("Rotation ");
-                    Serial.print(current.rotationDirection == 1 ? "CW" : "CCW");
-                    Serial.print(" (");
-                    Serial.print(current.stepPosition);
-                    Serial.println(")");
-                }
-            } else {
-                current.rotationDirection = 0;
-            }
-        } else {
-            current.firstRotationMessage = false;
-            current.rotationDirection = 0;
-        }
-        
-        current.sequenceCounter = newSequence;
-        current.lastEncoderValue = newEncoder;
-    } else {
-        current.rotationDirection = 0;
-    }
+void handleController(unsigned char *data, unsigned long /*timestamp*/) {
+    updateKnobStates(data[3]);
+    updateButtonStates(data);
+    updateRotation(data[0], data[1]);
 }
 
 void handleUnknown5E7(unsigned char *data, unsigned long timestamp) {
