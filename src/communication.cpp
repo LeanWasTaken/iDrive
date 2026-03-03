@@ -1,66 +1,90 @@
 #include "communication.h"
 
-void setBrightness(uint8_t level) {
-    if (level > 0xFD) level = 0xFD;
-    
-    if (level == 0x00) {
-        unsigned char off[1] = {0xFE};
-        CAN.sendMsgBuf(0x202, 0, 1, off);
-        current.iDriveLightOn = false;
-    } else {
-        unsigned char data[1] = {level};
-        CAN.sendMsgBuf(0x202, 0, 1, data);
-        current.brightnessLevel = level;
-        current.iDriveLightOn = true;
+namespace {
+
+constexpr uint16_t BRIGHTNESS_CAN_ID = 0x202;
+constexpr uint8_t MAX_BRIGHTNESS = 0xFD;
+constexpr uint8_t BRIGHTNESS_STEP = 0x20;
+
+uint8_t clampBrightness(uint8_t level) {
+    return (level > MAX_BRIGHTNESS) ? MAX_BRIGHTNESS : level;
+}
+
+void sendSingleByte(uint16_t id, uint8_t value) {
+    uint8_t payload[1] = {value};
+    twai_send(id, 1, payload);
+}
+
+void sendLightsOff() {
+    sendSingleByte(BRIGHTNESS_CAN_ID, 0xFE);
+}
+
+void sendBrightnessValue(uint8_t level) {
+    sendSingleByte(BRIGHTNESS_CAN_ID, level);
+}
+
+void logBrightness(uint8_t level) {
+    Serial.print("Brightness: 0x");
+    Serial.print(level, HEX);
+    Serial.print(" (");
+    Serial.print(level ? (level * 100) / MAX_BRIGHTNESS : 0);
+    Serial.println("%)");
+}
+
+uint8_t computeAdjustedBrightness(int8_t delta) {
+    if (delta > 0) {
+        if (current.brightnessLevel == 0x00) {
+            return BRIGHTNESS_STEP;
+        }
+        uint16_t candidate = current.brightnessLevel + BRIGHTNESS_STEP;
+        return (candidate > MAX_BRIGHTNESS) ? MAX_BRIGHTNESS : static_cast<uint8_t>(candidate);
     }
+
+    if (current.brightnessLevel <= BRIGHTNESS_STEP) {
+        return 0x00;
+    }
+    return current.brightnessLevel - BRIGHTNESS_STEP;
+}
+
+}  // namespace
+
+void setBrightness(uint8_t level) {
+    uint8_t normalized = clampBrightness(level);
+
+    if (normalized == 0x00) {
+        sendLightsOff();
+    } else {
+        sendBrightnessValue(normalized);
+    }
+
+    current.brightnessLevel = normalized;
+    current.iDriveLightOn = (normalized != 0x00);
     delay(30);
 }
 
 void adjustBrightness(int8_t delta) {
-    uint8_t newLevel;
-    
-    if (delta > 0) {
-        newLevel = min(0xFD, current.brightnessLevel + 0x20);
-        if (current.brightnessLevel == 0x00) newLevel = 0x20;
-    } else {
-        newLevel = (current.brightnessLevel <= 0x20) ? 0x00 : current.brightnessLevel - 0x20;
-    }
-    
+    uint8_t newLevel = computeAdjustedBrightness(delta);
     setBrightness(newLevel);
-    
-    Serial.print("Brightness: 0x");
-    Serial.print(newLevel, HEX);
-    Serial.print(" (");
-    Serial.print(newLevel ? (newLevel * 100) / 0xFD : 0);
-    Serial.println("%)");
+    logBrightness(newLevel);
 }
 
 void sendKeepAlive() {
-    unsigned char keepalive[8] = {0x40, 0x10, 0x00, 0x02, 0x03, 0x92, 0x01, 0x00};
-    CAN.sendMsgBuf(IDRIVE_KEEPALIVE_ID, 0, 8, keepalive);
+    uint8_t keepalive[8] = {0x40, 0x10, 0x00, 0x02, 0x03, 0x92, 0x01, 0x00};
+    twai_send(IDRIVE_KEEPALIVE_ID, 8, keepalive);
     current.lastKeepAliveTime = millis();
 }
 
 void sendStatusBurst() {
-    // Cycle through the 14-entry 0x3C status burst table, aint workin
-    static const unsigned char WAKE_BURST[14][8] = {
-        {0xD0, 0xAE, 0x02, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x6B, 0xA2, 0x02, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x03, 0xA8, 0x02, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x37, 0xAD, 0x02, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x5F, 0xA7, 0x02, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0xB9, 0xAA, 0x02, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0xE5, 0xA5, 0x02, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x5E, 0xA9, 0x02, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x71, 0xAD, 0x03, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0xA3, 0xA5, 0x03, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x44, 0xA6, 0x03, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x97, 0xA0, 0x03, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x19, 0xA7, 0x03, 0x92, 0x01, 0x00, 0x2A, 0xFF},
-        {0x2C, 0xAC, 0x03, 0x92, 0x01, 0x00, 0x2A, 0xFF}
+    // Status burst frames for 0x3C - cycles through different payloads
+    static const uint8_t STATUS_FRAMES[][8] = {
+        {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
     };
+    constexpr uint8_t NUM_FRAMES = sizeof(STATUS_FRAMES) / sizeof(STATUS_FRAMES[0]);
 
-    CAN.sendMsgBuf(IDRIVE_STATUS_BURST_ID, 0, 8, (unsigned char*)WAKE_BURST[current.statusBurstIndex]);
-    current.statusBurstIndex = (current.statusBurstIndex + 1) % 14;
+    twai_send(IDRIVE_STATUS_BURST_ID, 8, STATUS_FRAMES[current.statusBurstIndex]);
+    current.statusBurstIndex = (current.statusBurstIndex + 1) % NUM_FRAMES;
     current.lastStatusBurstTime = millis();
 }
