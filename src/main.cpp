@@ -1,21 +1,18 @@
 #include <Arduino.h>
-#include "config.h"
-#include "idrive_state.h"
-#include "can_handlers.h"
-#include "communication.h"
-#include "serial_interface.h"
+#include "twai_driver.h"
+#include "can_protocol.h"
+#include "idrive_controller.h"
+#include "can_rx.h"
+#include "can_tx.h"
+#include "serial_commands.h"
 
 void setup() {
     Serial.begin(115200);
-    // Wait for serial with timeout (useful for USB CDC on ESP32-C3)
     unsigned long serialTimeout = millis();
     while (!Serial && (millis() - serialTimeout < 3000)) delay(10);
 
     Serial.println("Starting iDrive Controller...");
 
-    startMillis = millis();
-
-    // Initialize TWAI (CAN) driver
     if (twai_init()) {
         Serial.println("TWAI (CAN) Bus OK");
     } else {
@@ -23,7 +20,7 @@ void setup() {
         while (1) delay(1000);
     }
 
-    current.lastKeepAliveTime = millis();
+    state.lastKeepAliveTime = millis();
 
     Serial.println("iDrive Controller Ready");
     Serial.println("Press 'h' for help");
@@ -34,14 +31,9 @@ void loop() {
     handleSerialCommands();
     processCanMessages();
 
-    unsigned long currentTime = millis();
-    // Automatic keepalive
-    if (currentTime - current.lastKeepAliveTime >= KEEPALIVE_INTERVAL) {
-        sendKeepAlive();
-    }
+    unsigned long now = millis();
 
-    // Continuous status burst: Cycle through 0x3C frames every 2ms, aint workin yet
-    if (currentTime - current.lastStatusBurstTime >= STATUS_BURST_INTERVAL) {
-        sendStatusBurst();
+    if (now - state.lastKeepAliveTime >= KEEPALIVE_INTERVAL_MS) {
+        sendKeepAlive();
     }
 }
